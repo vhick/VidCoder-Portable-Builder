@@ -1,6 +1,6 @@
 # VidCoder Portable — GitHub Actions Builder
 
-A standalone **manual-only** GitHub Actions builder. It compiles the stable official VidCoder tagged source into a self-contained Windows x64 `App/` layout, applies narrowly scoped source fixes for portable data storage, and compiles a root `VidCoderPortable.exe` launcher carrying VidCoder's **original** icon.
+A standalone **manual-only** GitHub Actions builder (revision **1.1: Fluent.Ribbon / IsolatedStorage fix**). It compiles the stable official VidCoder tagged source into a self-contained Windows x64 `App/` layout, applies narrowly scoped source fixes for portable data storage, and compiles a root `VidCoderPortable.exe` launcher carrying VidCoder's **original** icon.
 
 This repository **does not contain** a prebuilt VidCoder executable. Running the GitHub Action creates the ready-to-extract portable artifact.
 
@@ -49,9 +49,31 @@ Run the workflow again. Unzip the new artifact into a new temporary folder, then
 
 The stock official portable `.exe` may use an existing database in the host `%APPDATA%`, depending on whether a database exists beside the executable. This kit avoids that ambiguity by overriding the database location *in source*, before connecting to SQLite. The same override handles VidCoder's backup, logs, and cache AppFolder. The app is forced to classify this launch as portable (which disables the normal update and watcher behaviors).
 
+### Fluent.Ribbon / Windows IsolatedStorage (fixed in builder revision 1.1)
+
+Fluent.Ribbon's default automatic ribbon-state persistence uses Windows .NET
+`IsolatedStorage`, often in `%LOCALAPPDATA%\IsolatedStorage`. This Known Folder path
+cannot reliably be redirected simply by changing `LOCALAPPDATA` for a process.
+
+The patcher now searches VidCoder's Fluent.Ribbon XAML controls and explicitly sets
+`AutomaticStateManagement="False"` on each Ribbon **before compilation**. This
+prevents that optional interface-state feature from writing a
+`Fluent.Ribbon.State.*` file outside the portable directory.
+
+**Trade-off:** The ribbon's own minimized/customized state might reset on restart.
+VidCoder's video presets, encode profiles and settings remain in its portable
+SQLite database under `Data/Settings`. This revision does *not* pretend to
+redirect Fluent.Ribbon state into `Data/`; it disables the separate automatic
+persistence feature to prevent host writes safely.
+
+The builder fails rather than shipping an unverified build if it cannot find
+Fluent.Ribbon XAML controls, and checks the modified source again during build.
+It **never cleans the system IsolatedStorage folder**, because other programs
+can also use it. Existing files from earlier versions remain untouched.
+
 The root launcher sets only **process-local** variables. It never changes the user's global Windows environment, registry, AppData, or ProgramData and never deliberately edits another VidCoder installation's data. Temporary files are redirected to its own `Data/Temp` and the launcher attempts to clear that folder after VidCoder closes.
 
-This isolation covers known VidCoder app data paths. It **cannot guarantee zero OS-managed traces** (Windows itself and media drivers can create caches). Also, absolute paths in queued jobs may need adjusting after switching PCs.
+This isolation covers known VidCoder app data paths and disables the discovered Fluent.Ribbon host-store behavior. It **cannot guarantee zero OS-managed traces** (Windows itself and media drivers can create caches). Also, absolute paths in queued jobs may need adjusting after switching PCs.
 
 ## Important safety/testing notes
 
@@ -69,3 +91,23 @@ This isolation covers known VidCoder app data paths. It **cannot guarantee zero 
 - Official stable releases: https://github.com/RandomEngy/VidCoder/releases
 - Portable-vs-ZIP behavior: https://vidcoder.net/Documentation/Installation.html
 - License: VidCoder GPL-2.0; full modified source is shipped in every artifact (`Other/Source/`), along with the portable launcher source and build patch instructions.
+
+## Verify the IsolatedStorage fix on Windows
+
+1. Close all VidCoder instances. **Leave your old Data folder intact.**
+2. Check the file's existing **Date modified** in Windows Explorer:
+   `%LOCALAPPDATA%\IsolatedStorage\...\Fluent.Ribbon.State.471D11FF`
+3. Build the revised kit and update **only** `VidCoderPortable.exe`, `App/`, and `Other/`.
+   Do not overwrite `Data/`.
+4. Launch the updated **root** `VidCoderPortable.exe` twice, open the ribbon,
+   and close VidCoder each time.
+5. Check that the previously observed file did **not** change and that no new
+   `Fluent.Ribbon.State.*` entry appeared while the updated VidCoder ran.
+6. Test an encode, create/edit a preset, close/reopen and verify your preset still works.
+
+If the file appears again, report the new exact path and timestamps; another
+third-party component or a different Ribbon UI implementation may need investigating.
+Do not delete parent `IsolatedStorage` folders: they can contain other apps' data.
+
+Official Microsoft reference: https://learn.microsoft.com/en-us/dotnet/standard/io/isolated-storage
+Official Fluent.Ribbon changelog: https://github.com/fluentribbon/Fluent.Ribbon/blob/develop/Changelog.md

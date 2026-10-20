@@ -26,6 +26,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Check the ribbon portability patch
+        shell: pwsh
+        run: python -m unittest discover -s tests -v
+
       - name: Resolve stable version and fetch official source
         id: upstream
         shell: pwsh

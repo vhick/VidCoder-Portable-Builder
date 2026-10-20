@@ -6,7 +6,7 @@ $mustHave = @(
   'App/VidCoderCommon.dll', 'App/VidCoderWorker.exe', 'App/hb.dll',
   'App/AppInfo/appicon.ico', 'App/AppInfo/appinfo.ini',
   'Data/KEEP_DATA_README.txt', 'Other/Source/VidCoder-modified-source.zip',
-  'Other/Source/patch-vidcoder.ps1', 'Other/Source/VidCoderPortable.cpp',
+  'Other/Source/patch-vidcoder.ps1', 'Other/Source/patch-fluent-ribbon.py', 'Other/Source/VidCoderPortable.cpp',
   'Other/License/VidCoder-GPL-2.0.txt', 'README-START-HERE.txt'
 )
 foreach ($file in $mustHave) {
@@ -23,6 +23,20 @@ try {
     try { $content = $reader.ReadToEnd() } finally { $reader.Dispose() }
     if (-not $content.Contains('VIDCODER_PORTABLE_DATA_DIR')) { throw "Required isolation changes missing from $file" }
   }
+  # Inspect the archive directly: it must contain the patched XAML, not merely the patcher.
+  $xaml = @($archive.Entries | Where-Object { $_.FullName -match '^VidCoder/.+\.xaml$' })
+  $fluentCount = 0
+  foreach ($entry in $xaml) {
+    $reader = New-Object IO.StreamReader($entry.Open())
+    try { $content = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    if ($content -match '(?s)<[A-Za-z_][\w.-]*:Ribbon(?=[\s/>])') {
+      if ( $content -notmatch 'AutomaticStateManagement\s*=\s*(?:"False"|''False'')') {
+        throw "Ribbon control found without the disabled-state attribute: $($entry.FullName)"
+      }
+      $fluentCount++
+    }
+  }
+  if ($fluentCount -lt 1) { throw 'Modified source archive contains no disabled Fluent.Ribbon control.' }
 } finally { $archive.Dispose() }
 Write-Host 'Portable output and source patches: structural validation passed.'
 Write-Host 'NOTE: a real Windows execution/encoding/remnants test is still required.'

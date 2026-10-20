@@ -20,6 +20,9 @@ foreach ($relative in $requiredPatched) {
         throw "The portability modification is missing from $relative. Refusing to build."
     }
 }
+# Fail closed if a future upstream update removes or re-enables ribbon persistence.
+& python (Join-Path $root 'scripts/patch-fluent-ribbon.py') $src --check
+if ($LASTEXITCODE -ne 0) { throw 'Ribbon state isolation validation failed.' }
 if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
 $folders = @($app, (Join-Path $dist 'Data'), (Join-Path $dist 'Other/License'), (Join-Path $dist 'Other/Source'), (Join-Path $app 'AppInfo'))
 New-Item -ItemType Directory -Force -Path $folders | Out-Null
@@ -77,10 +80,11 @@ if (-not (Test-Path $upstreamLicense)) { throw 'Upstream license is missing.' }
 Copy-Item $upstreamLicense (Join-Path $dist 'Other/License/VidCoder-GPL-2.0.txt') -Force
 Copy-Item (Join-Path $src 'ThirdPartyLicenses.txt') (Join-Path $dist 'Other/License/ThirdPartyLicenses.txt') -Force
 Copy-Item (Join-Path $root 'scripts/patch-vidcoder.ps1') (Join-Path $dist 'Other/Source/patch-vidcoder.ps1') -Force
+Copy-Item (Join-Path $root 'scripts/patch-fluent-ribbon.py') (Join-Path $dist 'Other/Source/patch-fluent-ribbon.py') -Force
 Copy-Item (Join-Path $root 'launcher/VidCoderPortable.cpp') (Join-Path $dist 'Other/Source/VidCoderPortable.cpp') -Force
 Copy-Item (Join-Path $root 'launcher/VidCoderPortable.rc') (Join-Path $dist 'Other/Source/VidCoderPortable.rc') -Force
 
-# Ship corresponding upstream source WITH the 3 modified source files included (GPL-2.0).
+# Ship corresponding upstream source WITH all modified source and XAML files included (GPL-2.0).
 # Only tracked files are archived, excluding transient build outputs and any .git data.
 & python (Join-Path $root 'scripts/pack-source.py') $src (Join-Path $dist 'Other/Source/VidCoder-modified-source.zip')
 if ($LASTEXITCODE -ne 0) { throw 'Cannot package corresponding modified source.' }
@@ -109,6 +113,8 @@ Data is the persistent user-data directory. DO NOT DELETE during upgrades.
 Never launch App/VidCoder.exe directly: open VidCoderPortable.exe at the package root.
 Database, logs, cached data, backups: Data/Settings
 Temporary files: Data/Temp (cleaned by the launcher when VidCoder closes normally)
+Fluent.Ribbon automatic state saving: disabled to avoid Windows IsolatedStorage.
+Ribbon minimized/customized state may reset each launch; encoding presets remain in SQLite.
 Version: $Version, official stable tagged source plus isolation patches.
 "@ | Set-Content (Join-Path $dist 'Data/KEEP_DATA_README.txt') -Encoding utf8
 
@@ -125,7 +131,11 @@ one database concurrently.
 
 PORTABILITY: Process-local variables plus source changes force VidCoder's SQLite
 and CommonUtilities.AppFolder into Data/Settings. Temporary files use Data/Temp.
-Real Windows Known Folder state, codec/GPU caches or shell artifacts outside this
+Fluent.Ribbon automatic ribbon-state persistence is disabled, preventing its known
+IsolatedStorage write. Previously existing Windows IsolatedStorage is NOT touched.
+Ribbon minimized/customized state may reset each launch. Other VidCoder settings
+and encoding presets remain in Data/Settings. Windows OS-managed state, codec/GPU
+caches or shell artifacts outside this
 application's control cannot be guaranteed trace-free.
 
 SOURCE AND LICENSE: Other/Source/VidCoder-modified-source.zip includes the full

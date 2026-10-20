@@ -58,4 +58,11 @@ $1
 '@
 Apply-UniquePatch 'VidCoder/Utilities/Utilities.cs' '(static Utilities\(\)\s*\{)' $installTypeReplacement 'force portable install type, disable self-updates and watcher'
 
-Write-Host 'All required portability patches applied.'
+# Fluent.Ribbon uses .NET IsolatedStorage for automatic ribbon state. Windows treats that
+# as a Known Folder and it is NOT reliably redirected by APPDATA/LOCALAPPDATA env vars.
+# Disable this specific optional feature at XAML source level before compiling.
+# Never remove or modify the machine's existing IsolatedStorage directories.
+& python (Join-Path $PSScriptRoot 'patch-fluent-ribbon.py') $src
+if ($LASTEXITCODE -ne 0) { throw 'Fluent.Ribbon IsolatedStorage prevention patch failed.' }
+
+Write-Host 'All required portability patches, including Fluent.Ribbon, applied.' 
