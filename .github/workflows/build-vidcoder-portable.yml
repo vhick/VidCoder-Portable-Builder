@@ -1,0 +1,75 @@
+name: Build VidCoder Portable (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable VidCoder version (leave as latest, or enter e.g. 12.23)'
+        required: true
+        default: 'latest'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows x64 portable package
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - name: Check out this builder repository
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve stable version and fetch official source
+        id: upstream
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $requested = $env:REQUESTED_VERSION.Trim()
+          if ($requested -eq 'latest') {
+            $response = Invoke-RestMethod -Uri 'https://api.github.com/repos/RandomEngy/VidCoder/releases/latest' -Headers @{ 'User-Agent' = 'VidCoderPortableBuilder' }
+            if ($response.prerelease -or $response.draft) { throw 'The selected GitHub release is not stable.' }
+            $tag = [string]$response.tag_name
+          } else {
+            if ($requested -notmatch '^\d+\.\d+$') { throw 'Enter latest or a stable version such as 12.23.' }
+            $tag = 'v' + $requested
+            $response = Invoke-RestMethod -Uri "https://api.github.com/repos/RandomEngy/VidCoder/releases/tags/$tag" -Headers @{ 'User-Agent' = 'VidCoderPortableBuilder' }
+            if ($response.prerelease -or $response.draft) { throw 'Only official stable releases are supported.' }
+          }
+          if ($tag -notmatch '^v(\d+\.\d+)$') { throw "Unexpected release tag: $tag" }
+          $version = $Matches[1]
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Using official stable VidCoder $version ($tag)"
+          git clone --depth 1 --branch $tag https://github.com/RandomEngy/VidCoder.git upstream
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch the official source tag.' }
+
+      - name: Patch source to enforce Data isolation
+        shell: pwsh
+        run: ./scripts/patch-vidcoder.ps1
+
+      - name: Build and package
+        shell: pwsh
+        env:
+          VIDC_VERSION: ${{ steps.upstream.outputs.version }}
+        run: ./scripts/build-portable.ps1 -Version $env:VIDC_VERSION
+
+      - name: Validate package contents
+        shell: pwsh
+        run: ./scripts/verify-package.ps1
+
+      - name: Upload ready-to-extract portable ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VidCoderPortable-${{ steps.upstream.outputs.version }}-x64
+          path: dist/VidCoderPortable/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6

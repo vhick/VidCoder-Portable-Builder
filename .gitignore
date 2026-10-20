@@ -1,0 +1,7 @@
+upstream/
+dist/
+worker-publish/
+launcher/appicon.res
+launcher/vidcoder.ico
+launcher/*.obj
+*.zip
